@@ -24,10 +24,8 @@ $defaultArgs = @(
     "--hgt_layer", "3",
     "--hgt_in_dim", "128",
     "--dataset", "C-dataset",
-    "--eval_every", "10",
-    "--early_stop_start_epoch", "400",
-    "--early_stop_patience", "100",
-    "--early_stop_metric", "aupr"
+    "--eval_every", "1",
+    "--early_stop_metric", "auc"
 )
 
 if ($args.Count -gt 0) {

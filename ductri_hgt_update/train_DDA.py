@@ -108,7 +108,7 @@ def save_training_results(args, run_name, fold_results, aucs, auprs, total_train
         'epochs': args.epochs,
         'eval_every': args.eval_every,
         'early_stop_metric': args.early_stop_metric,
-        'early_stop_enabled': not args.disable_early_stop,
+        'early_stop_enabled': args.use_early_stop,
         'mean_auc': round(float(np.mean(aucs)), 6),
         'std_auc': round(float(np.std(aucs)), 6),
         'mean_aupr': round(float(np.mean(auprs)), 6),
@@ -142,12 +142,13 @@ if __name__ == '__main__':
     parser.add_argument('--hgt_out_dim', default='200', type=int, help='heterogeneous graph transformer output dimension')
     parser.add_argument('--tr_layer', default='2', type=int, help='transformer layer')
     parser.add_argument('--tr_head', default='4', type=int, help='transformer head')
-    parser.add_argument('--eval_every', type=int, default=10, help='evaluate every N epochs instead of every epoch')
+    parser.add_argument('--eval_every', type=int, default=1, help='evaluate every N epochs; use 1 to evaluate every epoch')
     parser.add_argument('--early_stop_start_epoch', type=int, default=400, help='start checking early stopping after this epoch')
     parser.add_argument('--early_stop_patience', type=int, default=100, help='stop if monitored metric does not improve for this many epochs after the start epoch')
     parser.add_argument('--early_stop_min_delta', type=float, default=1e-4, help='minimum metric improvement to reset early stopping')
-    parser.add_argument('--early_stop_metric', choices=['auc', 'aupr'], default='aupr', help='metric used to track best epoch and early stopping')
-    parser.add_argument('--disable_early_stop', action='store_true', help='disable early stopping and always run all epochs')
+    parser.add_argument('--early_stop_metric', choices=['auc', 'aupr'], default='auc', help='metric used to track best epoch and early stopping')
+    parser.add_argument('--enable_early_stop', action='store_true', help='enable early stopping')
+    parser.add_argument('--disable_early_stop', action='store_true', help='disable early stopping (backward-compatible flag)')
     parser.add_argument('--run_name', default='', help='optional custom name prefix for the training run result files')
     parser.add_argument('--use_relation_attention', action='store_true', default=True, help='use relation-aware attention in HGT')
     parser.add_argument('--use_metapath', action='store_true', default=True, help='use explicit metapath branch in HGT')
@@ -160,6 +161,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     args.eval_every = max(1, args.eval_every)
+    args.use_early_stop = args.enable_early_stop and not args.disable_early_stop
     script_dir = os.path.dirname(os.path.abspath(__file__))
     args.data_dir = os.path.join(script_dir, 'data', args.dataset, '')
     args.result_dir = os.path.join(script_dir, 'Result', args.dataset, 'AMNTDDA')
@@ -199,8 +201,8 @@ if __name__ == '__main__':
     print('Dataset:', args.dataset)
     print('Device:', device)
     print('Run name:', args.run_name)
-    print('Eval every:', args.eval_every, '| Early stop metric:', args.early_stop_metric)
-    if args.disable_early_stop:
+    print('Eval every:', args.eval_every, '| Best epoch metric:', args.early_stop_metric)
+    if not args.use_early_stop:
         print('Early stopping: disabled')
     else:
         print(
@@ -282,7 +284,7 @@ if __name__ == '__main__':
                     round(best_aupr, 5),
                 )
 
-            if not args.disable_early_stop and current_epoch >= args.early_stop_start_epoch:
+            if args.use_early_stop and current_epoch >= args.early_stop_start_epoch:
                 if last_improve_epoch < args.early_stop_start_epoch:
                     last_improve_epoch = args.early_stop_start_epoch
                 if current_epoch - last_improve_epoch >= args.early_stop_patience:
