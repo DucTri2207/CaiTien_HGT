@@ -2,6 +2,7 @@ import timeit
 import argparse
 import os
 import warnings
+from datetime import datetime
 import numpy as np
 import pandas as pd
 import torch.optim as optim
@@ -55,6 +56,70 @@ def evaluate_model(model, drdr_graph, didi_graph, drdipr_graph, drug_feature, di
 
     return get_metric(y_eval, eval_pred, eval_prob)
 
+
+def sanitize_name(value):
+    cleaned = []
+    for char in value.strip():
+        if char.isalnum() or char in ('-', '_'):
+            cleaned.append(char)
+        else:
+            cleaned.append('_')
+    return ''.join(cleaned).strip('_') or 'run'
+
+
+def create_run_name(dataset, requested_name=None):
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    base_name = sanitize_name(requested_name) if requested_name else sanitize_name(dataset)
+    return f'{base_name}_{timestamp}'
+
+
+def save_training_results(args, run_name, fold_results, aucs, auprs, total_training_time):
+    os.makedirs(args.result_dir, exist_ok=True)
+
+    fold_rows = [
+        {
+            'Fold': f'Fold {item["fold"]}',
+            'AUC': round(item['auc'], 4),
+            'AUPR': round(item['aupr'], 4),
+        }
+        for item in fold_results
+    ]
+    fold_rows.extend([
+        {
+            'Fold': 'Mean',
+            'AUC': round(float(np.mean(aucs)), 4),
+            'AUPR': round(float(np.mean(auprs)), 4),
+        },
+        {
+            'Fold': 'Std Dev',
+            'AUC': round(float(np.std(aucs)), 4),
+            'AUPR': round(float(np.std(auprs)), 4),
+        },
+    ])
+
+    fold_result_path = os.path.join(args.result_dir, f'{run_name}_fold_results.csv')
+    pd.DataFrame(fold_rows).to_csv(fold_result_path, index=False)
+
+    history_path = os.path.join(args.result_dir, 'train_history.csv')
+    history_row = pd.DataFrame([{
+        'run_name': run_name,
+        'dataset': args.dataset,
+        'k_fold': args.k_fold,
+        'epochs': args.epochs,
+        'eval_every': args.eval_every,
+        'early_stop_metric': args.early_stop_metric,
+        'early_stop_enabled': not args.disable_early_stop,
+        'mean_auc': round(float(np.mean(aucs)), 6),
+        'std_auc': round(float(np.std(aucs)), 6),
+        'mean_aupr': round(float(np.mean(auprs)), 6),
+        'std_aupr': round(float(np.std(auprs)), 6),
+        'total_training_time_s': round(float(total_training_time), 2),
+        'fold_results_file': os.path.basename(fold_result_path),
+    }])
+    history_row.to_csv(history_path, mode='a', header=not os.path.exists(history_path), index=False)
+
+    return fold_result_path, history_path
+
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
@@ -83,6 +148,7 @@ if __name__ == '__main__':
     parser.add_argument('--early_stop_min_delta', type=float, default=1e-4, help='minimum metric improvement to reset early stopping')
     parser.add_argument('--early_stop_metric', choices=['auc', 'aupr'], default='aupr', help='metric used to track best epoch and early stopping')
     parser.add_argument('--disable_early_stop', action='store_true', help='disable early stopping and always run all epochs')
+    parser.add_argument('--run_name', default='', help='optional custom name prefix for the training run result files')
     parser.add_argument('--use_relation_attention', action='store_true', default=True, help='use relation-aware attention in HGT')
     parser.add_argument('--use_metapath', action='store_true', default=True, help='use explicit metapath branch in HGT')
     parser.add_argument('--use_global_hgt', action='store_true', default=True, help='use global context branch in HGT')
@@ -94,8 +160,10 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     args.eval_every = max(1, args.eval_every)
-    args.data_dir = 'data/' + args.dataset + '/'
-    args.result_dir = 'Result/' + args.dataset + '/AMNTDDA/'
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    args.data_dir = os.path.join(script_dir, 'data', args.dataset, '')
+    args.result_dir = os.path.join(script_dir, 'Result', args.dataset, 'AMNTDDA')
+    args.run_name = create_run_name(args.dataset, args.run_name)
 
     np.random.seed(args.random_seed)
     torch.manual_seed(args.random_seed)
@@ -126,9 +194,11 @@ if __name__ == '__main__':
 
     Metric = ('Epoch\t\tTime\t\tAUC\t\tAUPR\t\tAccuracy\t\tPrecision\t\tRecall\t\tF1-score\t\tMcc')
     AUCs, AUPRs = [], []
+    fold_results = []
 
     print('Dataset:', args.dataset)
     print('Device:', device)
+    print('Run name:', args.run_name)
     print('Eval every:', args.eval_every, '| Early stop metric:', args.early_stop_metric)
     if args.disable_early_stop:
         print('Early stopping: disabled')
@@ -230,6 +300,11 @@ if __name__ == '__main__':
 
         AUCs.append(best_auc)
         AUPRs.append(best_aupr)
+        fold_results.append({
+            'fold': i + 1,
+            'auc': best_auc,
+            'aupr': best_aupr,
+        })
         print(
             'Best fold metrics:',
             best_auc,
@@ -254,7 +329,19 @@ if __name__ == '__main__':
     AUPR_mean = np.mean(AUPRs)
     AUPR_std = np.std(AUPRs)
     print('Mean AUPR:', AUPR_mean, '(', AUPR_std, ')')
-    print('Total training time (s):', round(timeit.default_timer() - total_start, 2))
+    total_training_time = timeit.default_timer() - total_start
+    print('Total training time (s):', round(total_training_time, 2))
+
+    fold_result_path, history_path = save_training_results(
+        args,
+        args.run_name,
+        fold_results,
+        AUCs,
+        AUPRs,
+        total_training_time,
+    )
+    print('Saved fold results to:', fold_result_path)
+    print('Updated train history at:', history_path)
 
 
 
