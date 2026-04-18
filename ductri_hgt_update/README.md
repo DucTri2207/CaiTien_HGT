@@ -10,12 +10,11 @@ The code was prepared so it can run on:
 
 ## What Changed
 
-- Replaced the original heterogeneous branch with `RLGHGT`
-- Added relation-aware local attention
-- Added explicit meta-path reasoning
-- Added topological / subgraph-aware aggregation
-- Added global context and layer-wise aggregation
-- Added ablation flags for the HGT components
+- Reworked only the heterogeneous graph transformer branch
+- Kept the original AMDGT `HGTConv` style backbone for speed
+- Added reverse relations in the heterograph
+- Added feature projection for disease nodes so all node types share the same HGT input size
+- Cached the homogeneous graph conversion to remove repeated overhead
 - Kept the original AMDGT similarity branch and prediction pipeline as much as possible
 
 ## Tested Environment
@@ -102,15 +101,6 @@ Quick smoke test:
 .\.venv\Scripts\python train_DDA.py --dataset C-dataset --epochs 1 --k_fold 2
 ```
 
-Ablation examples:
-
-```powershell
-.\.venv\Scripts\python train_DDA.py --disable_metapath
-.\.venv\Scripts\python train_DDA.py --disable_global_hgt
-.\.venv\Scripts\python train_DDA.py --disable_topological
-.\.venv\Scripts\python train_DDA.py --disable_relation_attention
-```
-
 ## Important Notes
 
 - The code now creates `data/<dataset>/fold/<i>/` automatically on first run.
@@ -123,7 +113,7 @@ Ablation examples:
 - `metric.py`: AUC/AUPR and classification metrics
 - `train_DDA.py`: training and evaluation entrypoint
 - `model/AMNTDDA.py`: full model pipeline
-- `model/rlg_hgt.py`: upgraded heterogeneous graph transformer
+- `model/hgt.py`: lightweight improved heterogeneous graph transformer
 
 ## Original Baseline
 

@@ -2,7 +2,7 @@ import os
 import torch
 import torch.nn as nn
 from model import gt_net_drug, gt_net_disease
-from model.rlg_hgt import RLGHGT
+from model.hgt import ImprovedHGT
 
 device = torch.device(os.environ.get('AMDGT_DEVICE', 'cuda' if torch.cuda.is_available() else 'cpu'))
 
@@ -14,8 +14,6 @@ class AMNTDDA(nn.Module):
         self.drug_linear = nn.Linear(300, args.hgt_in_dim)
         self.disease_linear = nn.Linear(64, args.hgt_in_dim)
         self.protein_linear = nn.Linear(320, args.hgt_in_dim)
-        self.hgt_drug_out = nn.Linear(args.hgt_in_dim, args.gt_out_dim)
-        self.hgt_disease_out = nn.Linear(args.hgt_in_dim, args.gt_out_dim)
         self.gt_drug = gt_net_drug.GraphTransformer(device, args.gt_layer, args.drug_number, args.gt_out_dim, args.gt_out_dim,
                                                     args.gt_head, args.dropout)
         self.gt_disease = gt_net_disease.GraphTransformer(device, args.gt_layer, args.disease_number, args.gt_out_dim,
@@ -37,19 +35,23 @@ class AMNTDDA(nn.Module):
             ('protein', 'association_rev', 'disease'),
         ]
         node_types = ['drug', 'disease', 'protein']
-        self.hgt = RLGHGT(
+        self.hgt_hidden_dim = args.hgt_out_dim
+        self.hgt = ImprovedHGT(
             hidden_dim=args.hgt_in_dim,
-            out_dim=args.hgt_in_dim,
+            out_dim=self.hgt_hidden_dim,
             num_heads=args.hgt_head,
             num_layers=args.hgt_layer,
             canonical_etypes=canonical_etypes,
             node_types=node_types,
             dropout=args.dropout,
-            use_relation_attention=getattr(args, 'use_relation_attention', True),
-            use_metapath=getattr(args, 'use_metapath', True),
-            use_global=getattr(args, 'use_global_hgt', True),
-            use_topological=getattr(args, 'use_topological', True),
         )
+
+        if self.hgt_hidden_dim == args.gt_out_dim:
+            self.hgt_drug_out = nn.Identity()
+            self.hgt_disease_out = nn.Identity()
+        else:
+            self.hgt_drug_out = nn.Linear(self.hgt_hidden_dim, args.gt_out_dim)
+            self.hgt_disease_out = nn.Linear(self.hgt_hidden_dim, args.gt_out_dim)
 
         self.mlp = nn.Sequential(
             nn.Linear(args.gt_out_dim * 2, 1024),

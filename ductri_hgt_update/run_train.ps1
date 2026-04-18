@@ -21,8 +21,8 @@ $defaultArgs = @(
     "--neighbor", "20",
     "--lr", "0.0005",
     "--weight_decay", "0.0001",
-    "--hgt_layer", "3",
-    "--hgt_in_dim", "128",
+    "--hgt_layer", "2",
+    "--hgt_in_dim", "64",
     "--dataset", "C-dataset",
     "--eval_every", "1",
     "--early_stop_metric", "auc"

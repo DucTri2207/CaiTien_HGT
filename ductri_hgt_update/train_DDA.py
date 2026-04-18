@@ -76,26 +76,34 @@ def create_run_name(dataset, requested_name=None):
 def save_training_results(args, run_name, fold_results, aucs, auprs, total_training_time):
     os.makedirs(args.result_dir, exist_ok=True)
 
+    metric_columns = [
+        ('auc', 'AUC'),
+        ('aupr', 'AUPR'),
+        ('accuracy', 'Accuracy'),
+        ('precision', 'Precision'),
+        ('recall', 'Recall'),
+        ('f1', 'F1-score'),
+        ('mcc', 'Mcc'),
+    ]
+
     fold_rows = [
         {
             'Fold': f'Fold {item["fold"]}',
-            'AUC': round(item['auc'], 4),
-            'AUPR': round(item['aupr'], 4),
+            'Best_Epoch': item['best_epoch'],
+            **{column_name: round(item[metric_key], 4) for metric_key, column_name in metric_columns},
         }
         for item in fold_results
     ]
-    fold_rows.extend([
-        {
-            'Fold': 'Mean',
-            'AUC': round(float(np.mean(aucs)), 4),
-            'AUPR': round(float(np.mean(auprs)), 4),
-        },
-        {
-            'Fold': 'Std Dev',
-            'AUC': round(float(np.std(aucs)), 4),
-            'AUPR': round(float(np.std(auprs)), 4),
-        },
-    ])
+    summary_rows = []
+    for row_name, reducer in (('Mean', np.mean), ('Std Dev', np.std)):
+        summary_row = {
+            'Fold': row_name,
+            'Best_Epoch': '',
+        }
+        for metric_key, column_name in metric_columns:
+            summary_row[column_name] = round(float(reducer([item[metric_key] for item in fold_results])), 4)
+        summary_rows.append(summary_row)
+    fold_rows.extend(summary_rows)
 
     fold_result_path = os.path.join(args.result_dir, f'{run_name}_fold_results.csv')
     pd.DataFrame(fold_rows).to_csv(fold_result_path, index=False)
@@ -150,14 +158,6 @@ if __name__ == '__main__':
     parser.add_argument('--enable_early_stop', action='store_true', help='enable early stopping')
     parser.add_argument('--disable_early_stop', action='store_true', help='disable early stopping (backward-compatible flag)')
     parser.add_argument('--run_name', default='', help='optional custom name prefix for the training run result files')
-    parser.add_argument('--use_relation_attention', action='store_true', default=True, help='use relation-aware attention in HGT')
-    parser.add_argument('--use_metapath', action='store_true', default=True, help='use explicit metapath branch in HGT')
-    parser.add_argument('--use_global_hgt', action='store_true', default=True, help='use global context branch in HGT')
-    parser.add_argument('--use_topological', action='store_true', default=True, help='use topological branch in HGT')
-    parser.add_argument('--disable_relation_attention', action='store_false', dest='use_relation_attention', help='disable relation-aware attention in HGT')
-    parser.add_argument('--disable_metapath', action='store_false', dest='use_metapath', help='disable explicit metapath branch in HGT')
-    parser.add_argument('--disable_global_hgt', action='store_false', dest='use_global_hgt', help='disable global context branch in HGT')
-    parser.add_argument('--disable_topological', action='store_false', dest='use_topological', help='disable topological branch in HGT')
 
     args = parser.parse_args()
     args.eval_every = max(1, args.eval_every)
@@ -304,8 +304,14 @@ if __name__ == '__main__':
         AUPRs.append(best_aupr)
         fold_results.append({
             'fold': i + 1,
+            'best_epoch': best_epoch,
             'auc': best_auc,
             'aupr': best_aupr,
+            'accuracy': best_accuracy,
+            'precision': best_precision,
+            'recall': best_recall,
+            'f1': best_f1,
+            'mcc': best_mcc,
         })
         print(
             'Best fold metrics:',
